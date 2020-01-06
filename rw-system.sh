@@ -159,6 +159,12 @@ if getprop ro.vendor.build.fingerprint | grep -qE 'Sony/'; then
     setprop persist.sys.qcom-brightness -1
 fi
 
+# Xiaomi MiA3 uses OLED display which works best with this setting
+if getprop ro.vendor.build.fingerprint | grep -iq \
+    -e iaomi/laurel_sprout;then
+    setprop persist.sys.qcom-brightness -1
+fi
+
 if getprop ro.vendor.build.fingerprint | grep -qi oneplus/oneplus6/oneplus6; then
     resize2fs /dev/block/platform/soc/1d84000.ufshc/by-name/userdata
 fi
@@ -183,7 +189,8 @@ fi
 if getprop ro.vendor.build.fingerprint | grep -q -i \
     -e xiaomi/clover -e xiaomi/wayne -e xiaomi/sakura \
     -e xiaomi/nitrogen -e xiaomi/whyred -e xiaomi/platina \
-    -e xiaomi/ysl -e nubia/nx60 -e nubia/nx61 -e xiaomi/tulip -e xiaomi/lavender; then
+    -e xiaomi/ysl -e nubia/nx60 -e nubia/nx61 -e xiaomi/tulip \
+    -e xiaomi/lavender -e xiaomi/olivelite -e xiaomi/pine; then
     setprop persist.sys.qcom-brightness "$(cat /sys/class/leds/lcd-backlight/max_brightness)"
 fi
 
@@ -197,7 +204,8 @@ if getprop ro.vendor.build.fingerprint | grep -iq \
     -e motorola/ali/ali -e iaomi/perseus/perseus -e iaomi/platina/platina \
     -e iaomi/equuleus/equuleus -e motorola/nora -e xiaomi/nitrogen \
     -e motorola/hannah -e motorola/james -e motorola/pettyl -e iaomi/cepheus \
-    -e iaomi/grus -e xiaomi/cereus -e iaomi/raphael -e iaomi/davinci;then
+    -e iaomi/grus -e xiaomi/cereus -e iaomi/raphael -e iaomi/davinci \
+    -e iaomi/ginkgo -e iaomi/laurel_sprout;then
     mount -o bind /mnt/phh/empty_dir /vendor/lib64/soundfx
     mount -o bind /mnt/phh/empty_dir /vendor/lib/soundfx
     setprop  ro.audio.ignore_effects true
@@ -330,7 +338,7 @@ if getprop ro.vendor.build.fingerprint | grep -qiE '^samsung'; then
     fi
 fi
 
-if getprop ro.vendor.build.fingerprint | grep -qE '^xiaomi/(daisy|wayne)/(daisy|wayne).*'; then
+if getprop ro.vendor.build.fingerprint | grep -qE '^xiaomi/wayne/wayne.*'; then
     # Fix camera on DND, ugly workaround but meh
     setprop audio.camerasound.force true
 fi
@@ -406,8 +414,8 @@ if [ -f /system/phh/secure ];then
     copyprop ro.build.product ro.product.vendor.model
     copyprop ro.product.manufacturer ro.vendor.product.manufacturer
     copyprop ro.product.manufacturer ro.product.vendor.manufacturer
-    copyprop ro.build.version.security_patch ro.keymaster.xxx.security_patch
     copyprop ro.build.version.security_patch ro.vendor.build.security_patch
+    copyprop ro.build.version.security_patch ro.keymaster.xxx.security_patch
     resetprop ro.build.tags release-keys
     resetprop ro.boot.vbmeta.device_state locked
     resetprop ro.boot.verifiedbootstate green
@@ -422,4 +430,43 @@ if [ -f /system/phh/secure ];then
 
     resetprop ro.adb.secure 1
     setprop ctl.restart adbd
+fi
+
+if getprop ro.boot.boot_devices |grep -v , |grep -qE .;then
+    ln -s /dev/block/platform/$(getprop ro.boot.boot_devices) /dev/block/bootdevice
+fi
+
+if [ -c /dev/dsm ];then
+    chown system:system /dev/dsm
+    chmod 0660 /dev/dsm
+    mkdir -p /data/sec_storage_data
+    chown system:system /data/sec_storage_data
+    chcon u:object_r:teecd_data_file_system:s0 /data/sec_storage_data
+    mount /data/sec_storage_data /sec_storage
+fi
+
+#Try to detect DT2W
+for ev in $(cd /sys/class/input;echo event*);do
+	if [ -f "/sys/class/input/$ev/device/device/gesture_mask" ];then
+		setprop persist.sys.phh.dt2w_evnode /dev/input/$ev
+	fi
+done
+
+has_hostapd=false
+for i in odm oem vendor product;do
+    if grep -qF android.hardware.wifi.hostapd /$i/etc/vintf/manifest.xml;then
+        has_hostapd=true
+    fi
+done
+
+if [ "$has_hostapd" = false ];then
+    setprop persist.sys.phh.system_hostapd true
+fi
+
+#Weird /odm/phone.prop Huawei stuff
+if [ -f /odm/phone.prop ];then
+    HW_PRODID="$(sed -nE 's/.*productid=([0-9x]*).*/\1/p' /proc/cmdline)"
+    if [ -n "$HW_PRODID" ];then
+        eval "$(awk 'BEGIN { a=0 }; /\[.*\].*/ { a=0 }; tolower($0) ~ /.*0x39606014.*/ { a=1 }; /.*=.*/ { if(a == 1) print $0 }' /odm/phone.prop |sed -nE 's/(.*)=(.*)/setprop \1 "\2";/p')"
+    fi
 fi
